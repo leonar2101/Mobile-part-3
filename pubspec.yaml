@@ -1,5 +1,5 @@
 name: stridelog
-description: "Desfrute de uma jornada saudável com nosso app de monitoramento fitness! Registre suas atividades, acompanhe seu progresso e mantenha-se motivado com um design intuitivo e seguro"
+description: "Desfrute de uma jornada saudável com nosso app de monitoramento fitness"
 publish_to: "none"
 version: 1.0.0
 
@@ -17,6 +17,10 @@ dependencies:
   path: ^1.8.3
   path_provider: ^2.1.2
   provider: ^6.1.2
+  http: ^1.2.0
+  geolocator: ^10.1.0
+  image_picker: ^1.0.7
+  permission_handler: ^11.3.0
 
 dev_dependencies:
   flutter_test:

@@ -16,12 +16,14 @@ class Activity {
   final String id;
   final String userId;
   final ActivityType type;
-  final String? customTypeName; // when type == ActivityType.custom
+  final String? customTypeName;
   final int durationMinutes;
   final double? distanceKm;
   final int? calories;
   final DateTime date;
   final String? notes;
+  final String? imagePath;
+  final String? weatherInfo;
 
   Activity({
     required this.id,
@@ -33,24 +35,28 @@ class Activity {
     this.calories,
     required this.date,
     this.notes,
+    this.imagePath,
+    this.weatherInfo,
   });
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'userId': userId,
-        'type': type.name,
-        'customTypeName': customTypeName,
-        'durationMinutes': durationMinutes,
-        'distanceKm': distanceKm,
-        'calories': calories,
-        'date': date.toIso8601String(),
-        'notes': notes,
-      };
+    'id': id,
+    'userId': userId,
+    'type': type.name,
+    'customTypeName': customTypeName,
+    'durationMinutes': durationMinutes,
+    'distanceKm': distanceKm,
+    'calories': calories,
+    'date': date.toIso8601String(),
+    'notes': notes,
+    'imagePath': imagePath,
+    'weatherInfo': weatherInfo,
+  };
 
   factory Activity.fromJson(Map<String, dynamic> json) {
     final typeName = json['type'] as String;
     final parsedType = ActivityType.values.firstWhere(
-      (e) => e.name == typeName,
+          (e) => e.name == typeName,
       orElse: () => ActivityType.custom,
     );
     return Activity(
@@ -65,6 +71,8 @@ class Activity {
       calories: json['calories'],
       date: DateTime.parse(json['date']),
       notes: json['notes'],
+      imagePath: json['imagePath'],
+      weatherInfo: json['weatherInfo'],
     );
   }
 

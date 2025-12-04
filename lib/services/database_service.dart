@@ -12,10 +12,9 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'stridelog.db');
 
-
     final db = await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await _createTables(db);
       },
@@ -29,10 +28,12 @@ class DatabaseService {
             );
           ''');
         }
+        if (oldVersion < 3) {
+          await db.execute('ALTER TABLE activities ADD COLUMN imagePath TEXT');
+          await db.execute('ALTER TABLE activities ADD COLUMN weatherInfo TEXT');
+        }
       },
     );
-
-
 
     return db;
   }
@@ -59,6 +60,8 @@ class DatabaseService {
         calories INTEGER,
         date TEXT NOT NULL,
         notes TEXT,
+        imagePath TEXT,
+        weatherInfo TEXT,
         FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
       );
     ''');
@@ -71,7 +74,6 @@ class DatabaseService {
       );
     ''');
   }
-
 
   static Future<void> insertUser(User user) async {
     final db = await database;

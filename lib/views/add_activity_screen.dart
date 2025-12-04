@@ -1,10 +1,15 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:geolocator/geolocator.dart' hide ActivityType;
 import 'package:stridelog/controllers/auth_provider.dart';
 import 'package:stridelog/controllers/activity_provider.dart';
 import 'package:stridelog/models/activity.dart';
 import 'package:stridelog/services/validation_service.dart';
 import 'package:stridelog/services/database_service.dart';
+import 'package:stridelog/services/weather_service.dart';
+import 'package:stridelog/logic/weather_logic.dart';
 
 class AddActivityScreen extends StatefulWidget {
   final VoidCallback? onSaved;
@@ -27,10 +32,15 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
   DateTime _selectedDate = DateTime.now();
   bool _isLoading = false;
 
+  String? _imagePath;
+  String? _weatherInfo;
+  bool _isLoadingWeather = false;
+
   @override
   void initState() {
     super.initState();
     _loadCustomTypes();
+    _fetchWeather();
   }
 
   Future<void> _loadCustomTypes() async {
@@ -38,6 +48,65 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
     if (user == null) return;
     final types = await DatabaseService.getCustomActivityTypes(user.id);
     setState(() => _customTypes = types);
+  }
+
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Tirar Foto'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Escolher da Galeria'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (source != null) {
+      final pickedFile = await picker.pickImage(source: source);
+      if (pickedFile != null) {
+        setState(() {
+          _imagePath = pickedFile.path;
+        });
+      }
+    }
+  }
+
+  Future<void> _fetchWeather() async {
+    setState(() => _isLoadingWeather = true);
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.whileInUse ||
+          permission == LocationPermission.always) {
+
+        Position position = await Geolocator.getCurrentPosition();
+        final weather = await WeatherService().getCurrentWeather(
+            position.latitude,
+            position.longitude
+        );
+
+        setState(() => _weatherInfo = weather);
+      }
+    } catch (e) {
+      debugPrint('Erro clima: $e');
+    } finally {
+      setState(() => _isLoadingWeather = false);
+    }
   }
 
   @override
@@ -100,6 +169,8 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
           : null,
       date: _selectedDate,
       notes: _notesController.text.isNotEmpty ? _notesController.text : null,
+      imagePath: _imagePath,
+      weatherInfo: _weatherInfo,
     );
 
     final success = await context.read<ActivityProvider>().addActivity(activity);
@@ -138,7 +209,10 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
       _selectedType = ActivityType.running;
       _selectedCustomTypeName = null;
       _selectedDate = DateTime.now();
+      _imagePath = null;
+      _weatherInfo = null;
     });
+    _fetchWeather();
   }
 
   Future<void> _promptAddCustomType() async {
@@ -248,96 +322,189 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
     ),
   );
 
-  Widget _buildForm() => Form(
-    key: _formKey,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _buildSectionTitle('Tipo de atividade'),
-        const SizedBox(height: 16),
-        _buildActivityTypeSelector(),
-        if (_selectedType == ActivityType.custom &&
-            _selectedCustomTypeName != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              'Tipo selecionado: $_selectedCustomTypeName',
-              style: Theme.of(context).textTheme.bodyMedium,
+  Widget _buildForm() {
+    // Avalia o clima para mostrar o status
+    final weatherEvaluation = WeatherLogic.evaluate(_weatherInfo);
+
+    return Form(
+      key: _formKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildSectionTitle('Tipo de atividade'),
+          const SizedBox(height: 16),
+          _buildActivityTypeSelector(),
+          if (_selectedType == ActivityType.custom &&
+              _selectedCustomTypeName != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Tipo selecionado: $_selectedCustomTypeName',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _promptAddCustomType,
+              icon: const Icon(Icons.add),
+              label: const Text('Adicionar novo tipo'),
             ),
           ),
-        const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: OutlinedButton.icon(
-            onPressed: _promptAddCustomType,
-            icon: const Icon(Icons.add),
-            label: const Text('Adicionar novo tipo'),
+          const SizedBox(height: 32),
+          _buildSectionTitle('Detalhes da atividade'),
+          const SizedBox(height: 16),
+
+          // --- WIDGET DO CLIMA COM AVALIAÇÃO ---
+          Container(
+            padding: const EdgeInsets.all(16),
+            margin: const EdgeInsets.only(bottom: 20),
+            decoration: BoxDecoration(
+              color: (weatherEvaluation['color'] as Color).withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: (weatherEvaluation['color'] as Color).withValues(alpha: 0.3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(weatherEvaluation['icon'] as IconData, color: weatherEvaluation['color'] as Color),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _weatherInfo ?? (_isLoadingWeather ? 'Buscando clima...' : 'Clima não disponível'),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                    ),
+                    if (!_isLoadingWeather && _weatherInfo == null)
+                      IconButton(
+                        icon: const Icon(Icons.refresh),
+                        onPressed: _fetchWeather,
+                      )
+                  ],
+                ),
+                if (_weatherInfo != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8, left: 36),
+                    child: Text(
+                      weatherEvaluation['status'] as String,
+                      style: TextStyle(
+                        color: weatherEvaluation['color'] as Color,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 32),
-        _buildSectionTitle('Detalhes da atividade'),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: _buildTextField(
-                controller: _durationController,
-                label: 'Duração (min)',
-                icon: Icons.timer,
-                keyboardType: TextInputType.number,
-                validator: (v) =>
-                    ValidationService.validatePositiveNumber(v, 'Duração'),
+
+          // --- WIDGET DA FOTO ---
+          GestureDetector(
+            onTap: _pickImage,
+            child: Container(
+              height: 200,
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                borderRadius: BorderRadius.circular(16),
+                image: _imagePath != null
+                    ? DecorationImage(
+                  image: FileImage(File(_imagePath!)),
+                  fit: BoxFit.cover,
+                )
+                    : null,
+              ),
+              child: _imagePath == null
+                  ? Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.camera_alt, size: 40, color: Colors.grey[600]),
+                  const SizedBox(height: 8),
+                  Text('Toque para adicionar foto', style: TextStyle(color: Colors.grey[600])),
+                ],
+              )
+                  : Stack(
+                children: [
+                  Positioned(
+                    right: 8,
+                    top: 8,
+                    child: CircleAvatar(
+                      backgroundColor: Colors.white,
+                      child: IconButton(
+                        icon: const Icon(Icons.edit, color: Colors.black),
+                        onPressed: _pickImage,
+                      ),
+                    ),
+                  )
+                ],
               ),
             ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _buildTextField(
-                controller: _distanceController,
-                label: 'Distância (km)',
-                icon: Icons.straighten,
-                keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-                validator: (v) =>
-                    ValidationService.validatePositiveDouble(v, 'Distância'),
+          ),
+
+          Row(
+            children: [
+              Expanded(
+                child: _buildTextField(
+                  controller: _durationController,
+                  label: 'Duração (min)',
+                  icon: Icons.timer,
+                  keyboardType: TextInputType.number,
+                  validator: (v) =>
+                      ValidationService.validatePositiveNumber(v, 'Duração'),
+                ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-        Row(
-          children: [
-            Expanded(
-              child: _buildTextField(
-                controller: _caloriesController,
-                label: 'Calorias (kcal)',
-                icon: Icons.local_fire_department,
-                keyboardType: TextInputType.number,
-                validator: (v) =>
-                    ValidationService.validatePositiveNumber(v, 'Calorias'),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _buildTextField(
+                  controller: _distanceController,
+                  label: 'Distância (km)',
+                  icon: Icons.straighten,
+                  keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+                  validator: (v) =>
+                      ValidationService.validatePositiveDouble(v, 'Distância'),
+                ),
               ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(child: _buildDateSelector()),
-          ],
-        ),
-        const SizedBox(height: 20),
-        _buildTextField(
-          controller: _notesController,
-          label: 'Notas (opcional)',
-          icon: Icons.note,
-          maxLines: 3,
-        ),
-        const SizedBox(height: 32),
-        _buildSubmitButton(),
-      ],
-    ),
-  );
+            ],
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: _buildTextField(
+                  controller: _caloriesController,
+                  label: 'Calorias (kcal)',
+                  icon: Icons.local_fire_department,
+                  keyboardType: TextInputType.number,
+                  validator: (v) =>
+                      ValidationService.validatePositiveNumber(v, 'Calorias'),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(child: _buildDateSelector()),
+            ],
+          ),
+          const SizedBox(height: 20),
+          _buildTextField(
+            controller: _notesController,
+            label: 'Notas (opcional)',
+            icon: Icons.note,
+            maxLines: 3,
+          ),
+          const SizedBox(height: 32),
+          _buildSubmitButton(),
+        ],
+      ),
+    );
+  }
 
   Widget _buildSectionTitle(String title) => Text(
     title,
     style: Theme.of(context)
-        .textTheme
-        .titleMedium
+        .textTheme.titleMedium
         ?.copyWith(fontWeight: FontWeight.w600),
   );
 

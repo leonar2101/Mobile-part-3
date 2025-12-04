@@ -1,7 +1,9 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:stridelog/controllers/activity_provider.dart';
 import 'package:stridelog/models/activity.dart';
+import 'package:stridelog/logic/weather_logic.dart';
 
 class ActivityHistoryScreen extends StatefulWidget {
   const ActivityHistoryScreen({super.key});
@@ -16,6 +18,10 @@ class ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
   @override
   void initState() {
     super.initState();
+    // Garante que os dados são carregados ao iniciar a tela
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      refresh();
+    });
   }
 
   Future<void> refresh() async {
@@ -55,6 +61,7 @@ class ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
     );
 
     if (confirmed == true) {
+      if (!mounted) return;
       final success = await context.read<ActivityProvider>().deleteActivity(activity.id);
       if (success && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -181,7 +188,7 @@ class ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
       backgroundColor: Colors.white.withValues(alpha: 0.2),
       selectedColor: Colors.white,
       labelStyle: TextStyle(
-        color: Color(0xFFFF6B35),
+        color: const Color(0xFFFF6B35),
         fontWeight: FontWeight.w500,
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -254,8 +261,10 @@ class ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
   Widget _buildActivityCard(Activity activity) {
     final color = _getActivityColor(activity.type);
     final icon = _getActivityIcon(activity.type);
+    // Usa a lógica para avaliar o clima salvo na atividade
+    final weatherEval = WeatherLogic.evaluate(activity.weatherInfo);
+
     return Container(
-      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -272,157 +281,176 @@ class ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
         ),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  icon,
-                  color: color,
-                  size: 24,
-                ),
+          // Lógica de Exibição da Foto: Verifica se existe e se o ficheiro é válido
+          if (activity.imagePath != null && File(activity.imagePath!).existsSync())
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              child: Image.file(
+                File(activity.imagePath!),
+                height: 180,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            ),
+
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                Row(
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            activity.displayTypeName,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${activity.date.day}/${activity.date.month}/${activity.date.year}',
-                          style:
-                          Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: Colors.grey[500],
-                          ),
-                        ),
-                      ],
+                    Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        icon,
+                        color: color,
+                        size: 24,
+                      ),
                     ),
-                    const SizedBox(height: 4),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 6,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.timer,
-                                size: 16, color: Colors.grey[500]),
-                            const SizedBox(width: 4),
-                            Text(
-                              activity.formattedDuration,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(
-                                color: Colors.grey[600],
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  activity.displayTypeName,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
                               ),
+                              const SizedBox(width: 8),
+                              Text(
+                                '${activity.date.day}/${activity.date.month}/${activity.date.year}',
+                                style:
+                                Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  color: Colors.grey[500],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          // Mostra Clima e Avaliação aqui se existir informação de clima
+                          if (activity.weatherInfo != null)
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Icon(
+                                      weatherEval['icon'] as IconData,
+                                      size: 14,
+                                      color: weatherEval['color'] as Color
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    // Mostra "25°C, céu limpo • Clima perfeito..."
+                                    '${activity.weatherInfo} • ${weatherEval['status']}',
+                                    style: TextStyle(
+                                      color: Colors.grey[600],
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
+                        ],
+                      ),
+                    ),
+                    PopupMenuButton(
+                      icon: Icon(Icons.more_vert, color: Colors.grey[400]),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(Icons.delete_outline, color: Colors.red[400]),
+                              const SizedBox(width: 12),
+                              const Text('Excluir'),
+                            ],
+                          ),
                         ),
-                        if (activity.distanceKm != null)
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.straighten,
-                                  size: 16, color: Colors.grey[500]),
-                              const SizedBox(width: 4),
-                              Text(
-                                activity.formattedDistance,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                            ],
-                          ),
-                        if (activity.calories != null)
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.local_fire_department,
-                                  size: 16, color: Colors.grey[500]),
-                              const SizedBox(width: 4),
-                              Text(
-                                '${activity.calories} kcal',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                            ],
-                          ),
                       ],
+                      onSelected: (value) {
+                        if (value == 'delete') {
+                          _deleteActivity(activity);
+                        }
+                      },
                     ),
                   ],
                 ),
-              ),
-              PopupMenuButton(
-                icon: Icon(Icons.more_vert, color: Colors.grey[400]),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                itemBuilder: (context) => [
-                  PopupMenuItem(
-                    value: 'delete',
-                    child: Row(
-                      children: [
-                        Icon(Icons.delete_outline, color: Colors.red[400]),
-                        const SizedBox(width: 12),
-                        const Text('Excluir'),
-                      ],
+
+                const SizedBox(height: 12),
+
+                // Métricas (Tempo, Distância, Calorias)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _buildMetricBadge(Icons.timer, activity.formattedDuration),
+                    if (activity.distanceKm != null)
+                      _buildMetricBadge(Icons.straighten, activity.formattedDistance),
+                    if (activity.calories != null)
+                      _buildMetricBadge(Icons.local_fire_department, '${activity.calories} kcal'),
+                  ],
+                ),
+
+                if (activity.notes != null && activity.notes!.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[50],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      activity.notes!,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.grey[700],
+                        fontStyle: FontStyle.italic,
+                      ),
                     ),
                   ),
                 ],
-                onSelected: (value) {
-                  if (value == 'delete') {
-                    _deleteActivity(activity);
-                  }
-                },
-              ),
-            ],
-          ),
-          if (activity.notes != null && activity.notes!.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey[50],
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                activity.notes!,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.grey[700],
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
+              ],
             ),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricBadge(IconData icon, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: Colors.grey[600]),
+          const SizedBox(width: 4),
+          Text(text, style: TextStyle(color: Colors.grey[800], fontSize: 12, fontWeight: FontWeight.w500)),
         ],
       ),
     );
